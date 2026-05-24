@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pipeline.bronze_layer import ingest
 from pipeline.silver_layer import transform
 from pipeline.gold_layer   import aggregate
-
+from pipeline.ml_layer     import run_ml
 
 def banner(text: str):
     width = 62
@@ -70,7 +70,7 @@ def run_full_pipeline(generate_data: bool = False):
 def main():
     parser = argparse.ArgumentParser(description="Spotify Medallion Pipeline")
     parser.add_argument(
-        "--layer", choices=["bronze", "silver", "gold"],
+        "--layer", choices=["bronze", "silver", "gold", "ml"],
         help="Run only one layer"
     )
     parser.add_argument(
@@ -93,6 +93,10 @@ def main():
     elif args.layer == "gold":
         banner("GOLD layer")
         aggregate()
+
+    elif args.layer == "ml":
+        banner("ML layer")
+        run_ml()
     else:
         run_full_pipeline(generate_data=args.generate_data)
 
