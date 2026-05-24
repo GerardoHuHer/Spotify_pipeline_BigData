@@ -1,0 +1,13 @@
+# Spotify Medallion Pipeline – requirements
+# ─────────────────────────────────────────────
+# Core pipeline
+pyspark>=3.5.0
+
+# Dashboard
+streamlit>=1.35.0
+plotly>=5.22.0
+pandas>=2.2.0
+pyarrow>=16.0.0          # Parquet I/O
+
+# Utilities
+python-dateutil>=2.9.0
