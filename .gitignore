@@ -1,2 +1,4 @@
 /data/Stream*
 /bucket
+/venv
+/pipeline/__pycache__
