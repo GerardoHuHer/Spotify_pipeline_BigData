@@ -1,3 +1,4 @@
+
 """
 Streamlit Dashboard  –  Spotify Insights
 ─────────────────────────────────────────────────────────────────────────────
@@ -20,6 +21,30 @@ from plotly.subplots import make_subplots
 # ── Config ─────────────────────────────────────────────────────────────────────
 BASE_DIR  = Path(__file__).resolve().parent.parent
 GOLD_PATH = BASE_DIR / "bucket" / "reproduccion" / "gold"
+ML_PATH   = BASE_DIR / "bucket" / "reproduccion" / "ml"
+
+
+@st.cache_data
+def read_ml_json(name: str) -> dict | None:
+    path = ML_PATH / f"{name}.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+@st.cache_data
+def read_ml_parquet(name: str) -> pd.DataFrame | None:
+    path = ML_PATH / f"{name}.parquet"
+    if not path.exists():
+        return None
+    try:
+        return pd.read_parquet(path)
+    except Exception:
+        return None
 
 st.set_page_config(
     page_title="Spotify Insights",
@@ -173,6 +198,7 @@ tabs = st.tabs([
     "📚 Audiolibros",
     "🌍 Por País",
     "💡 Recomendación de Plan",
+    "🤖 Machine Learning",
 ])
 
 
@@ -591,6 +617,408 @@ with tabs[6]:
         st.markdown(f"**💸 Ahorro potencial con el plan anual: `${ahorro:.0f} MXN` al año**")
     else:
         no_data("G10_plan_recomendacion")
+
+
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 7 – MACHINE LEARNING (orientado a decisiones del analista)
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tabs[7]:
+    st.header("🤖 Machine Learning")
+    st.markdown("Tres modelos que responden preguntas reales de un analista de datos sobre sus hábitos de Spotify.")
+
+    ml_tab1, ml_tab2, ml_tab3 = st.tabs([
+        "🎯 ML1 · ¿Te controla el algoritmo?",
+        "🔵 ML2 · Tu perfil de oyente",
+        "😴 ML3 · Fatiga y Skip",
+    ])
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ML1 – Algoritmo vs Elección Activa
+    # ══════════════════════════════════════════════════════════════════════
+    with ml_tab1:
+        st.subheader("🎯 ML1 – ¿El algoritmo de Spotify te sirve o te atrapa?")
+        st.markdown("""
+**Pregunta de negocio:** ¿Escuchas igual de bien lo que elige el algoritmo vs lo que vos elegís activamente?
+
+**Cómo funciona:** Cada reproducción se clasifica como *Elección Activa* (`clickrow`, `playbtn`, `backbtn`) 
+o *Algoritmo* (`trackdone`, `autoplay`, `fwdbtn`). Luego se comparan tasas de escucha completa y skip entre ambos grupos.
+        """)
+
+        r1 = read_ml_json("ML1_resultados")
+        if r1:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("% Elección Activa",  f"{r1['pct_global_activa']:.1%}")
+            c2.metric("% Via Algoritmo",    f"{r1['pct_global_algoritmo']:.1%}")
+            c3.metric("Total reproducciones", f"{r1['total_reproducciones']:,}")
+
+            if "interpretacion_analista" in r1:
+                st.info(f"💡 **Insight para el analista:** {r1['interpretacion_analista']}", icon="🔍")
+
+            if "accuracy" in r1:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Accuracy RF",    f"{r1['accuracy']:.1%}")
+                c2.metric("F1 Score",       f"{r1['f1_weighted']:.1%}")
+                c3.metric("CV F1 (5-fold)", f"{r1['cv_f1_mean']:.1%} ± {r1['cv_f1_std']:.1%}")
+        else:
+            st.info("Ejecuta: `python run_pipeline.py --layer ml`")
+
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+
+        # Comparativa tasa completa y skip
+        with col1:
+            comp = read_ml_parquet("ML1_comparativa_origen")
+            if comp is not None:
+                fig = go.Figure()
+                fig.add_trace(go.Bar(
+                    name="Tasa escucha completa",
+                    x=comp["origen_nombre"], y=comp["tasa_completa"],
+                    marker_color=GREEN, text=comp["tasa_completa"].map("{:.1%}".format),
+                    textposition="outside",
+                ))
+                fig.add_trace(go.Bar(
+                    name="Tasa de skip",
+                    x=comp["origen_nombre"], y=comp["tasa_skip"],
+                    marker_color="#FF6B6B", text=comp["tasa_skip"].map("{:.1%}".format),
+                    textposition="outside",
+                ))
+                fig.update_layout(barmode="group")
+                dark_layout(fig, "📊 Calidad de escucha: ¿Tú vs Algoritmo?", height=380)
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Diversidad por origen
+        with col2:
+            div = read_ml_parquet("ML1_diversidad_por_origen")
+            if div is not None:
+                fig = px.bar(
+                    div, x="origen", y="ratio_repeticion",
+                    color="origen", color_discrete_sequence=[GREEN, "#4D96FF"],
+                    text=div["ratio_repeticion"].map("{:.1f}x".format),
+                    labels={"origen":"","ratio_repeticion":"Veces que repetís cada canción"},
+                )
+                fig.update_traces(textposition="outside")
+                dark_layout(fig, "🔁 Repetitividad: ¿cuántas veces repetís cada canción?", height=380)
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Tendencia temporal
+        tend = read_ml_parquet("ML1_tendencia_temporal")
+        if tend is not None:
+            tend["fecha"] = tend["año"].astype(str) + "-" + tend["mes"].astype(str).str.zfill(2)
+            fig = px.line(
+                tend.sort_values("fecha"), x="fecha", y="pct_activa",
+                color_discrete_sequence=[GREEN], markers=True,
+                labels={"fecha":"Mes","pct_activa":"% Elección Activa"},
+            )
+            fig.add_hline(y=0.5, line_dash="dash", line_color=GRAY,
+                          annotation_text="50% — mitad activa, mitad algoritmo")
+            fig.update_xaxes(tickangle=45)
+            dark_layout(fig, "📈 ¿Cada vez más dependiente del algoritmo o más activo?", height=320)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Artistas por origen
+        art = read_ml_parquet("ML1_artistas_por_origen")
+        if art is not None:
+            col3, col4 = st.columns(2)
+            with col3:
+                top_algo = art.sort_values("pct_algoritmo", ascending=False).head(12)
+                fig = px.bar(
+                    top_algo, x="pct_algoritmo",
+                    y="master_metadata_album_artist_name", orientation="h",
+                    color_discrete_sequence=["#4D96FF"],
+                    labels={"master_metadata_album_artist_name":"Artista",
+                            "pct_algoritmo":"% Via Algoritmo"},
+                    text=top_algo["pct_algoritmo"].map("{:.0%}".format),
+                )
+                fig.update_layout(yaxis=dict(autorange="reversed"))
+                dark_layout(fig, "🤖 Artistas que escuchás casi solo por algoritmo", height=400)
+                st.plotly_chart(fig, use_container_width=True)
+            with col4:
+                top_activo = art.sort_values("pct_algoritmo", ascending=True).head(12)
+                fig = px.bar(
+                    top_activo, x="pct_algoritmo",
+                    y="master_metadata_album_artist_name", orientation="h",
+                    color_discrete_sequence=[GREEN],
+                    labels={"master_metadata_album_artist_name":"Artista",
+                            "pct_algoritmo":"% Via Algoritmo"},
+                    text=top_activo["pct_algoritmo"].map("{:.0%}".format),
+                )
+                fig.update_layout(yaxis=dict(autorange="reversed"))
+                dark_layout(fig, "💚 Artistas que buscás activamente", height=400)
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Feature importance RF
+        fi1 = read_ml_parquet("ML1_feature_importance")
+        if fi1 is not None:
+            fig = px.bar(
+                fi1, x="importance", y="feature", orientation="h",
+                color="importance",
+                color_continuous_scale=[[0,"#191414"],[0.5,"#17A349"],[1,GREEN]],
+                labels={"importance":"Importancia","feature":"Variable"},
+            )
+            fig.update_layout(yaxis=dict(autorange="reversed"), showlegend=False)
+            dark_layout(fig, "📊 ¿Qué diferencia más tu comportamiento según el origen?", height=300)
+            st.plotly_chart(fig, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ML2 – Perfil de Oyente Semanal
+    # ══════════════════════════════════════════════════════════════════════
+    with ml_tab2:
+        st.subheader("🔵 ML2 – ¿Cuál es tu perfil de oyente y cómo cambia?")
+        st.markdown("""
+**Pregunta de negocio:** ¿Eres un oyente explorador o estás en loop? ¿En qué épocas descubrís más música?
+
+**Cómo funciona:** K-Means agrupa tus **semanas** de escucha en perfiles basados en horas escuchadas, 
+diversidad de artistas, tasa de skip, % de elección activa y tipo de contenido.
+        """)
+
+        r2 = read_ml_json("ML2_resultados")
+        if r2:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Perfiles detectados",  r2["k_optimo"])
+            c2.metric("Silhouette Score",     f"{r2['silhouette_score']:.3f}")
+            c3.metric("Semanas analizadas",   f"{r2['semanas_analizadas']:,}")
+
+            st.info(f"💡 **Insight:** {r2['interpretacion_analista']}", icon="🔍")
+
+            st.markdown("### 🏷️ Perfiles de semana identificados")
+            perfiles_df = pd.DataFrame(r2["perfiles"])
+            cols_card = st.columns(min(r2["k_optimo"], 4))
+            for i, row in perfiles_df.iterrows():
+                with cols_card[i % len(cols_card)]:
+                    st.markdown(f"""
+<div style="background:#1E1E1E;border:1px solid #2A2A2A;border-radius:12px;padding:16px;margin-bottom:8px;">
+<h4 style="color:#1DB954;margin:0">{row['nombre']}</h4>
+<p style="color:#B3B3B3;font-size:0.85rem;margin:4px 0">
+  ⏱ {row.get('horas_semana',0):.1f}h/semana<br>
+  🎵 {row.get('pct_musica',0):.0%} música<br>
+  🔁 Diversidad: {row.get('diversidad',0):.2f}<br>
+  ⏭️ Skip: {row.get('tasa_skip',0):.0%}<br>
+  💚 Activa: {row.get('pct_activa',0):.0%}
+</p>
+</div>
+""", unsafe_allow_html=True)
+        else:
+            st.info("Ejecuta: `python run_pipeline.py --layer ml`")
+
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            sil = read_ml_parquet("ML2_silhouette_scores")
+            if sil is not None:
+                fig = px.line(sil, x="k", y="silhouette", markers=True,
+                    color_discrete_sequence=[GREEN],
+                    labels={"k":"Número de clusters K","silhouette":"Silhouette Score"})
+                if r2:
+                    fig.add_vline(x=r2["k_optimo"], line_dash="dash",
+                                  line_color="#FF6B6B",
+                                  annotation_text=f"K={r2['k_optimo']} óptimo")
+                dark_layout(fig, "📈 Selección de K óptimo", height=300)
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            sem = read_ml_parquet("ML2_semanas_con_cluster")
+            if sem is not None and r2:
+                perfiles_nombres = {p["cluster"]: p["nombre"] for p in r2["perfiles"]}
+                sem["perfil"] = sem["cluster"].map(perfiles_nombres)
+                fig = px.scatter(
+                    sem, x="diversidad", y="horas_semana",
+                    color="perfil", size="artistas_unicos",
+                    color_discrete_sequence=PALETTE,
+                    labels={"diversidad":"Diversidad musical",
+                            "horas_semana":"Horas escuchadas",
+                            "perfil":"Perfil"},
+                    hover_data=["tasa_skip","pct_activa"],
+                )
+                dark_layout(fig, "🔵 Semanas según diversidad y horas", height=300)
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Distribución por año
+        dist_año = read_ml_parquet("ML2_distribucion_por_año")
+        if dist_año is not None and r2:
+            perfiles_nombres = {p["cluster"]: p["nombre"] for p in r2["perfiles"]}
+            dist_año["perfil"] = dist_año["cluster"].map(perfiles_nombres)
+            fig = px.bar(
+                dist_año, x="año", y="semanas_count", color="perfil",
+                barmode="stack", color_discrete_sequence=PALETTE,
+                labels={"año":"Año","semanas_count":"Semanas","perfil":"Perfil"},
+                text_auto=True,
+            )
+            dark_layout(fig, "📅 ¿Cómo cambia tu perfil de oyente por año?", height=350)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Distribución por mes
+        dist_mes = read_ml_parquet("ML2_distribucion_por_mes")
+        if dist_mes is not None and r2:
+            meses_es = {1:"Ene",2:"Feb",3:"Mar",4:"Abr",5:"May",6:"Jun",
+                        7:"Jul",8:"Ago",9:"Sep",10:"Oct",11:"Nov",12:"Dic"}
+            perfiles_nombres = {p["cluster"]: p["nombre"] for p in r2["perfiles"]}
+            dist_mes["mes_nombre"] = dist_mes["mes"].map(meses_es)
+            dist_mes["perfil"]     = dist_mes["cluster"].map(perfiles_nombres)
+            fig = px.bar(
+                dist_mes, x="mes_nombre", y="semanas_count", color="perfil",
+                barmode="stack", color_discrete_sequence=PALETTE,
+                labels={"mes_nombre":"Mes","semanas_count":"Semanas","perfil":"Perfil"},
+                category_orders={"mes_nombre":list(meses_es.values())},
+            )
+            dark_layout(fig, "📆 ¿En qué meses explorás más?", height=350)
+            st.plotly_chart(fig, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ML3 – Fatiga y Contexto de Skip
+    # ══════════════════════════════════════════════════════════════════════
+    with ml_tab3:
+        st.subheader("😴 ML3 – ¿Cuándo y por qué abandonás la escucha?")
+        st.markdown("""
+**Pregunta de negocio:** ¿Tus sesiones son demasiado largas? ¿El shuffle te genera más rechazo? 
+¿Saltás más lo que pone el algoritmo?
+
+**Cómo funciona:** Gradient Boosting predice el skip usando **features de contexto de sesión**: 
+posición en la sesión, racha de skips previos, minutos acumulados, hora, shuffle y origen de la canción.
+        """)
+
+        r3 = read_ml_json("ML3_resultados")
+        if r3:
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Accuracy",          f"{r3['accuracy']:.1%}")
+            c2.metric("F1 Score",          f"{r3['f1_weighted']:.1%}")
+            c3.metric("CV F1 (5-fold)",    f"{r3['cv_f1_mean']:.1%} ± {r3['cv_f1_std']:.1%}")
+            c4.metric("Tasa skip global",  f"{r3['tasa_skip_global']:.1%}")
+
+            st.error(f"💡 **Insight principal:** {r3['interpretacion_analista']}", icon="⚠️")
+
+            # KPIs comparativos
+            st.markdown("### Shuffle vs Orden Fijo")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Skip con Shuffle ON",  f"{r3['tasa_skip_shuffle_on']:.1%}")
+            c2.metric("Skip con Shuffle OFF", f"{r3['tasa_skip_shuffle_off']:.1%}",
+                      delta=f"{r3['tasa_skip_shuffle_off']-r3['tasa_skip_shuffle_on']:.1%}",
+                      delta_color="inverse")
+            diff_origen = r3['tasa_skip_algoritmo'] - r3['tasa_skip_activa']
+            c3.metric("Skip extra por Algoritmo",
+                      f"{diff_origen:+.1%}",
+                      delta=f"algoritmo={r3['tasa_skip_algoritmo']:.1%} vs activa={r3['tasa_skip_activa']:.1%}",
+                      delta_color="inverse")
+        else:
+            st.info("Ejecuta: `python run_pipeline.py --layer ml`")
+
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            fi3 = read_ml_parquet("ML3_feature_importance")
+            if fi3 is not None:
+                nombres_es = {
+                    "posicion_en_sesion":   "Posición en sesión",
+                    "min_acumulado_sesion": "Minutos acumulados",
+                    "skips_previos":        "Skips previos en sesión",
+                    "hora":                 "Hora del día",
+                    "dia_semana":           "Día de la semana",
+                    "shuffle_enc":          "Shuffle activo",
+                    "es_activa":            "Elección activa (no algoritmo)",
+                    "mes":                  "Mes del año",
+                }
+                fi3["feature_es"] = fi3["feature"].map(nombres_es).fillna(fi3["feature"])
+                fig = px.bar(
+                    fi3, x="importance", y="feature_es", orientation="h",
+                    color="importance",
+                    color_continuous_scale=[[0,"#191414"],[0.5,"#FF6B6B"],[1,"#FF0000"]],
+                    labels={"importance":"Importancia","feature_es":"Factor"},
+                    text=fi3["importance"].map("{:.1%}".format),
+                )
+                fig.update_layout(yaxis=dict(autorange="reversed"), showlegend=False)
+                fig.update_traces(textposition="outside")
+                dark_layout(fig, "⚠️ ¿Qué causa más el skip?", height=360)
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            sp = read_ml_parquet("ML3_skip_por_posicion")
+            if sp is not None:
+                fig = px.line(
+                    sp, x="posicion_en_sesion", y="tasa_skip",
+                    markers=True, color_discrete_sequence=["#FF6B6B"],
+                    labels={"posicion_en_sesion":"Canción #N en la sesión",
+                            "tasa_skip":"Tasa de skip"},
+                )
+                fig.add_hline(y=sp["tasa_skip"].mean(), line_dash="dash",
+                              line_color=GRAY, annotation_text="Promedio")
+                dark_layout(fig, "📉 ¿A partir de qué canción empezás a saltear?", height=360)
+                st.plotly_chart(fig, use_container_width=True)
+
+        col3, col4 = st.columns(2)
+
+        with col3:
+            sm = read_ml_parquet("ML3_skip_por_minutos")
+            if sm is not None:
+                fig = px.bar(
+                    sm, x="bucket_min", y="tasa_skip",
+                    color="tasa_skip",
+                    color_continuous_scale=[[0,"#1E1E1E"],[0.5,"#FF6B6B"],[1,"#FF0000"]],
+                    labels={"bucket_min":"Minutos acumulados en sesión",
+                            "tasa_skip":"Tasa de skip"},
+                )
+                dark_layout(fig, "⏱️ La fatiga acumulada en la sesión", height=320)
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col4:
+            sh = read_ml_parquet("ML3_skip_por_hora")
+            if sh is not None:
+                fig = px.bar(
+                    sh, x="hora", y="tasa_skip",
+                    color="tasa_skip",
+                    color_continuous_scale=[[0,"#1E1E1E"],[0.5,"#FF6B6B"],[1,"#FF0000"]],
+                    labels={"hora":"Hora del día","tasa_skip":"Tasa de skip"},
+                )
+                dark_layout(fig, "🕐 Skip por hora del día", height=320)
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Shuffle vs orden + Activa vs Algoritmo
+        col5, col6 = st.columns(2)
+
+        with col5:
+            ss = read_ml_parquet("ML3_skip_shuffle_vs_orden")
+            if ss is not None:
+                fig = px.bar(
+                    ss, x="modo", y="tasa_skip",
+                    color="modo",
+                    color_discrete_sequence=["#4D96FF","#FF6B6B"],
+                    text=ss["tasa_skip"].map("{:.1%}".format),
+                    labels={"modo":"","tasa_skip":"Tasa de skip"},
+                )
+                fig.update_traces(textposition="outside")
+                dark_layout(fig, "🔀 ¿Shuffle aumenta el skip?", height=300)
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col6:
+            so = read_ml_parquet("ML3_skip_activa_vs_algoritmo")
+            if so is not None:
+                fig = px.bar(
+                    so, x="origen", y="tasa_skip",
+                    color="origen",
+                    color_discrete_sequence=[GREEN,"#4D96FF"],
+                    text=so["tasa_skip"].map("{:.1%}".format),
+                    labels={"origen":"","tasa_skip":"Tasa de skip"},
+                )
+                fig.update_traces(textposition="outside")
+                dark_layout(fig, "🤖 Skip: ¿Algoritmo vs Elección Activa?", height=300)
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Matriz de confusión
+        if r3 and "confusion_matrix" in r3:
+            st.markdown("### 📋 Matriz de Confusión del modelo")
+            cm_df = pd.DataFrame(
+                r3["confusion_matrix"],
+                index=["Real: No Skip","Real: Skip"],
+                columns=["Pred: No Skip","Pred: Skip"],
+            )
+            fig = px.imshow(cm_df, text_auto=True,
+                color_continuous_scale=[[0,"#191414"],[1,"#FF6B6B"]])
+            dark_layout(fig, "", height=280)
+            st.plotly_chart(fig, use_container_width=True)
 
 
 # ── Footer ─────────────────────────────────────────────────────────────────────
