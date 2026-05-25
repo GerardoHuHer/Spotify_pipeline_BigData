@@ -721,34 +721,6 @@ o *Algoritmo* (`trackdone`, `autoplay`, `fwdbtn`). Luego se comparan tasas de es
 
         # Artistas por origen
         art = read_ml_parquet("ML1_artistas_por_origen")
-        if art is not None:
-            col3, col4 = st.columns(2)
-            with col3:
-                top_algo = art.sort_values("pct_algoritmo", ascending=False).head(12)
-                fig = px.bar(
-                    top_algo, x="pct_algoritmo",
-                    y="master_metadata_album_artist_name", orientation="h",
-                    color_discrete_sequence=["#4D96FF"],
-                    labels={"master_metadata_album_artist_name":"Artista",
-                            "pct_algoritmo":"% Via Algoritmo"},
-                    text=top_algo["pct_algoritmo"].map("{:.0%}".format),
-                )
-                fig.update_layout(yaxis=dict(autorange="reversed"))
-                dark_layout(fig, "🤖 Artistas que escuchás casi solo por algoritmo", height=400)
-                st.plotly_chart(fig, use_container_width=True)
-            with col4:
-                top_activo = art.sort_values("pct_algoritmo", ascending=True).head(12)
-                fig = px.bar(
-                    top_activo, x="pct_algoritmo",
-                    y="master_metadata_album_artist_name", orientation="h",
-                    color_discrete_sequence=[GREEN],
-                    labels={"master_metadata_album_artist_name":"Artista",
-                            "pct_algoritmo":"% Via Algoritmo"},
-                    text=top_activo["pct_algoritmo"].map("{:.0%}".format),
-                )
-                fig.update_layout(yaxis=dict(autorange="reversed"))
-                dark_layout(fig, "💚 Artistas que buscás activamente", height=400)
-                st.plotly_chart(fig, use_container_width=True)
 
         # Feature importance RF
         fi1 = read_ml_parquet("ML1_feature_importance")
