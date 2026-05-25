@@ -189,10 +189,26 @@ def step_2_normalise_text(df: DataFrame) -> DataFrame:
     return df
 
 
+# def step_3_split_timestamp(df: DataFrame) -> DataFrame:
+#     """Parse ts → año, mes, día, hora integer columns."""
+#     df = (
+#         df.withColumn("ts_parsed", F.from_utc_timestamp(F.col("ts_parsed"), "America/Mexico_City"))
+#           .withColumn("año",  F.year("ts_parsed").cast(IntegerType()))
+#           .withColumn("mes",  F.month("ts_parsed").cast(IntegerType()))
+#           .withColumn("dia",  F.dayofmonth("ts_parsed").cast(IntegerType()))
+#           .withColumn("hora", F.hour("ts_parsed").cast(IntegerType()))
+#           .withColumn("dia_semana", F.dayofweek("ts_parsed").cast(IntegerType()))
+#           .drop("ts_parsed")
+#     )
+#     print("    [3] Timestamp split into año / mes / día / hora / dia_semana")
+#     return df
+
+
 def step_3_split_timestamp(df: DataFrame) -> DataFrame:
     """Parse ts → año, mes, día, hora integer columns."""
     df = (
         df.withColumn("ts_parsed", F.to_timestamp("ts", "yyyy-MM-dd'T'HH:mm:ss'Z'"))
+          .withColumn("ts_parsed", F.from_utc_timestamp(F.col("ts_parsed"), "America/Mexico_City"))
           .withColumn("año",  F.year("ts_parsed").cast(IntegerType()))
           .withColumn("mes",  F.month("ts_parsed").cast(IntegerType()))
           .withColumn("dia",  F.dayofmonth("ts_parsed").cast(IntegerType()))
@@ -202,7 +218,6 @@ def step_3_split_timestamp(df: DataFrame) -> DataFrame:
     )
     print("    [3] Timestamp split into año / mes / día / hora / dia_semana")
     return df
-
 
 def step_4_arte_tipo(df: DataFrame) -> DataFrame:
     """
