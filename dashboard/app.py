@@ -577,7 +577,7 @@ with tabs[6]:
         if rec == "anual":
             st.success(
                 f"### ✅ Recomendamos el **Plan Anual**\n"
-                f"Con **{row['meses_activos']} meses activos** al año y "
+                f"Con **{row['meses_activos']} meses activos** en la historia y "
                 f"un promedio de **{row['horas_promedio_mes']:.1f} horas/mes**, "
                 f"el plan anual te ahorra **${row['ahorro_anual_mxn']:.0f} MXN** al año.",
                 icon="💰",
