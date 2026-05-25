@@ -11,3 +11,7 @@ pyarrow>=16.0.0          # Parquet I/O
 
 # Utilities
 python-dateutil>=2.9.0
+
+# ML
+numpy
+scikit-learn
